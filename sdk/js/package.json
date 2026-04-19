@@ -1,0 +1,15 @@
+{
+  "name": "@cdp/tracker",
+  "version": "1.0.0",
+  "description": "CDP Browser Tracking SDK",
+  "main": "dist/cdp.js",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --minify --outfile=dist/cdp.min.js --global-name=CDP --platform=browser --target=es2015",
+    "build:dev": "esbuild src/index.ts --bundle --outfile=dist/cdp.js --global-name=CDP --platform=browser --sourcemap",
+    "watch": "npm run build:dev -- --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}
