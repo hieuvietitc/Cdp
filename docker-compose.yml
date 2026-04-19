@@ -222,6 +222,141 @@ services:
       - ui
     restart: unless-stopped
 
+  # ─── PgBouncer (connection pooler) ───────────────────────────────────────
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 25
+    ports:
+      - "5433:5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── Metrics Exporter ─────────────────────────────────────────────────────
+  metrics:
+    build:
+      context: services/metrics
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  # ─── Prometheus ───────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - metrics
+    restart: unless-stopped
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.3.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-cdpgrafana}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3001
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ─── Postgres Exporter ────────────────────────────────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── Redis Exporter ───────────────────────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.57.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── Apache Superset (BI Dashboards) ──────────────────────────────────────
+  superset:
+    image: apache/superset:3.1.0
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-superset-change-me-in-production}
+      SUPERSET_DB_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
+      REDIS_URL: redis://redis:6379/3
+      SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-cdpsuperset}
+      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.com}
+    volumes:
+      - ./infra/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+      - ./infra/superset/init_superset.sh:/docker-entrypoint.sh:ro
+      - superset_data:/app/superset_home
+    ports:
+      - "8088:8088"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ─── Automated Backup ─────────────────────────────────────────────────────
+  backup:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-cdp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cdppassword}
+      POSTGRES_DB: ${POSTGRES_DB:-cdpdb}
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
+    volumes:
+      - ./infra/backup/backup.sh:/backup.sh:ro
+      - backup_data:/backups
+    entrypoint: >
+      sh -c "
+        echo '0 3 * * * /backup.sh >> /var/log/backup.log 2>&1' | crontab - &&
+        crond -f -l 6
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
+  superset_data:
+  backup_data:

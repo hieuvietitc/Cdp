@@ -3,6 +3,7 @@ import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.routers import profiles, segments, activations, sources, auth, analytics
 
@@ -21,6 +22,7 @@ if _settings.jwt_secret_key in ("changeme", "changeme-in-production", ""):
         sys.exit(1)
 
 app = FastAPI(title="CDP Admin API", version="1.0.0", docs_url="/docs")
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 app.add_middleware(
     CORSMiddleware,

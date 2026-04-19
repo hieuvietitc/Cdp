@@ -9,3 +9,4 @@ python-dotenv>=1.0
 python-jose[cryptography]>=3.3
 passlib[bcrypt]>=1.7
 celery[redis]>=5.3
+prometheus-fastapi-instrumentator>=6.1

@@ -1,0 +1,49 @@
+groups:
+  - name: cdp_alerts
+    rules:
+      - alert: EventStreamHighLag
+        expr: cdp_stream_pending_events > 50000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis event stream lag is high"
+          description: "{{ $value }} events pending in cdp:events stream for >5m"
+
+      - alert: EventStreamCriticalLag
+        expr: cdp_stream_pending_events > 200000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis event stream critically backed up"
+          description: "{{ $value }} events pending — processor may be down"
+
+      - alert: HighErrorRate
+        expr: |
+          rate(http_requests_total{status=~"5.."}[5m]) /
+          rate(http_requests_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate on {{ $labels.job }}"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+      - alert: PostgresConnectionsHigh
+        expr: pg_stat_activity_count > 400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL connection count high"
+          description: "{{ $value }} active connections (limit 500)"
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis is at {{ $value | humanizePercentage }} of max memory"

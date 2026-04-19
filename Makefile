@@ -1,4 +1,4 @@
-.PHONY: up down build migrate seed logs ps clean test
+.PHONY: up down build migrate seed logs ps clean test backup monitor
 
 # ─── Dev lifecycle ────────────────────────────────────────────────────────
 up:
@@ -50,5 +50,28 @@ test:
 clean:
 	docker compose down -v --remove-orphans
 
+# ─── Backup ───────────────────────────────────────────────────────────────
+backup:
+	docker compose exec backup /backup.sh
+
+# ─── Monitoring ───────────────────────────────────────────────────────────
+monitor:
+	@echo "Prometheus: http://localhost:9090"
+	@echo "Grafana:    http://localhost:3001  (admin / see GRAFANA_PASSWORD in .env)"
+	@echo "Superset:   http://localhost:8088  (admin / see SUPERSET_ADMIN_PASSWORD)"
+	@echo ""
+	@docker compose exec prometheus wget -qO- http://localhost:9090/-/healthy || echo "Prometheus not running"
+
+stream-lag:
+	@docker compose exec redis redis-cli XLEN cdp:events
+
 setup: build migrate sdk-build up
-	@echo "CDP system ready. Admin UI: http://localhost:3000"
+	@echo ""
+	@echo "CDP system ready."
+	@echo "  Admin UI:   http://localhost:3000"
+	@echo "  Admin API:  http://localhost:8002/docs"
+	@echo "  Grafana:    http://localhost:3001"
+	@echo "  Superset:   http://localhost:8088"
+	@echo "  Prometheus: http://localhost:9090"
+	@echo ""
+	@echo "Next: create first admin user via POST /api/v1/auth/users"

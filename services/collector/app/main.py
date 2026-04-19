@@ -1,10 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.routers import events, health
 from app.middleware.rate_limit import RateLimitMiddleware
 
 app = FastAPI(title="CDP Collector API", version="1.0.0", docs_url="/docs")
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 # Rate limiting must be added before CORS so limits apply before preflight processing
 app.add_middleware(RateLimitMiddleware)
