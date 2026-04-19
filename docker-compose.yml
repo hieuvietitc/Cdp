@@ -21,7 +21,14 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes
+    # maxmemory-policy allkeys-lru: when Redis is full, evict LRU keys
+    # (rate limit counters and write_key caches are expendable)
+    # maxmemory 512mb: tune based on available RAM (events stream + caches)
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     ports:
@@ -65,16 +72,25 @@ services:
     restart: unless-stopped
 
   # ─── Event Processor (Celery) ─────────────────────────────────────────────
+  # Scale horizontally for 100K-1M events/day:
+  #   docker compose up --scale processor=3
+  # Each instance gets a unique CONSUMER_NAME (hostname-based) automatically.
   processor:
     build:
       context: services/processor
       dockerfile: Dockerfile
-    command: celery -A app.worker worker -l info -Q cdp_events -c 4
+    command: celery -A app.worker worker -l info -Q cdp_events -c ${PROCESSOR_CONCURRENCY:-8}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      # Tune event batch size from Redis Streams (higher = more throughput, more RAM)
+      STREAM_BATCH_SIZE: ${STREAM_BATCH_SIZE:-100}
+      # Warn when stream lag exceeds this threshold
+      STREAM_LAG_WARN: ${STREAM_LAG_WARN:-10000}
+      DB_POOL_SIZE: 10
+      DB_POOL_MAX_OVERFLOW: 10
     depends_on:
       postgres:
         condition: service_healthy
@@ -147,9 +163,12 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
+      # REQUIRED: set a strong secret in .env before production
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-changeme-in-production}
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: 1440
+      # Set to "production" to hard-fail on weak JWT_SECRET_KEY
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     ports:
       - "8002:8000"
     depends_on:

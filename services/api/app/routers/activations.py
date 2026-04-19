@@ -59,11 +59,12 @@ def create_activation(body: ActivationCreate, db: Session = Depends(get_db), _=D
     db.commit()
     db.refresh(activation)
 
-    # Dispatch async
-    from celery import Celery
-    from cdp_shared.config import settings
-    celery_app = Celery(broker=settings.celery_broker_url)
-    celery_app.send_task("app.tasks.dispatch.run_activation", args=[str(activation.id)], queue="cdp_activations")
+    from app.celery_client import get_celery
+    get_celery().send_task(
+        "app.tasks.dispatch.run_activation",
+        args=[str(activation.id)],
+        queue="cdp_activations",
+    )
     return activation
 
 

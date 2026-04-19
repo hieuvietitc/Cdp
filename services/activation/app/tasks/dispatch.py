@@ -2,7 +2,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.worker import app
 from app.destinations.sendgrid import SendGridDestination
@@ -20,6 +20,9 @@ DESTINATION_MAP = {
     "sms_esms": ESMSDestination,
     "meta_ads": MetaAdsDestination,
 }
+
+# Stream profiles in pages to avoid loading entire segment into memory
+PROFILE_PAGE_SIZE = 2_000
 
 
 @app.task(bind=True, max_retries=2, queue="cdp_activations")
@@ -51,45 +54,68 @@ def run_activation(self, activation_id: str):
             activation.started_at = datetime.now(timezone.utc)
             db.commit()
 
-            # Fetch segment members with profile data
-            rows = db.execute(
-                select(Profile)
-                .join(SegmentMember, SegmentMember.profile_id == Profile.id)
-                .where(SegmentMember.segment_id == activation.segment_id)
-                .where(Profile.merged_into.is_(None))
-            ).scalars().all()
-
-            profiles = [
-                {
-                    "id": str(p.id),
-                    "email": p.email,
-                    "phone": p.phone,
-                    "traits": p.traits,
-                }
-                for p in rows
-            ]
-
-            # Execute destination
             destination_instance = dest_cls(dest.config)
-            sent_count, errors = destination_instance.send(profiles)
+            total_sent = 0
+            all_errors: list[str] = []
 
-            # Persist per-profile log
-            log_entries = []
-            for p in rows:
-                log_entries.append(ActivationEvent(
-                    activation_id=act_uuid,
-                    profile_id=p.id,
-                    status="sent" if sent_count > 0 else "failed",
-                ))
-            db.bulk_save_objects(log_entries)
+            # Stream profiles in pages — safe for 1M+ member segments
+            offset = 0
+            while True:
+                rows = db.execute(
+                    select(Profile)
+                    .join(SegmentMember, SegmentMember.profile_id == Profile.id)
+                    .where(SegmentMember.segment_id == activation.segment_id)
+                    .where(Profile.merged_into.is_(None))
+                    .where(Profile.email.is_not(None) | Profile.phone.is_not(None))
+                    .order_by(Profile.id)
+                    .offset(offset)
+                    .limit(PROFILE_PAGE_SIZE)
+                ).scalars().all()
 
-            activation.profiles_sent = sent_count
-            activation.errors = errors
-            activation.status = "failed" if errors and sent_count == 0 else "completed"
+                if not rows:
+                    break
+
+                profiles = [
+                    {"id": str(p.id), "email": p.email, "phone": p.phone, "traits": p.traits}
+                    for p in rows
+                ]
+
+                page_sent, page_errors = destination_instance.send(profiles)
+                total_sent += page_sent
+                all_errors.extend(page_errors)
+
+                # Log per-profile status for this page
+                log_entries = []
+                sent_set = set()  # destinations don't give per-profile feedback; best effort
+                for p in rows:
+                    # Mark as sent if no errors in this batch; failed otherwise
+                    status = "sent" if not page_errors else ("sent" if page_sent == len(profiles) else "failed")
+                    log_entries.append(ActivationEvent(
+                        activation_id=act_uuid,
+                        profile_id=p.id,
+                        status=status,
+                        error_message=page_errors[0] if page_errors and status == "failed" else None,
+                    ))
+                db.bulk_save_objects(log_entries)
+                db.flush()
+
+                offset += PROFILE_PAGE_SIZE
+
+            activation.profiles_sent = total_sent
+            activation.errors = all_errors[:50]  # cap stored error list at 50 entries
+            if all_errors and total_sent == 0:
+                activation.status = "failed"
+            elif all_errors:
+                activation.status = "completed_with_errors"
+            else:
+                activation.status = "completed"
             activation.completed_at = datetime.now(timezone.utc)
             db.commit()
 
-            logger.info("Activation %s done: %d sent, %d errors", activation_id, sent_count, len(errors))
+            logger.info(
+                "Activation %s done: %d sent, %d errors",
+                activation_id, total_sent, len(all_errors),
+            )
 
     except Exception as exc:
         logger.error("run_activation failed: %s", exc, exc_info=True)

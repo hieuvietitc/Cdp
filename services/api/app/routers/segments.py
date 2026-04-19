@@ -85,10 +85,12 @@ def trigger_compute(segment_id: uuid.UUID, db: Session = Depends(get_db), _=Depe
     seg = db.get(Segment, segment_id)
     if not seg:
         raise HTTPException(status_code=404, detail="Segment not found")
-    from celery import Celery
-    from cdp_shared.config import settings
-    celery_app = Celery(broker=settings.celery_broker_url)
-    celery_app.send_task("app.tasks.refresh_segment.refresh_segment", args=[str(segment_id)], queue="cdp_segments")
+    from app.celery_client import get_celery
+    get_celery().send_task(
+        "app.tasks.refresh_segment.refresh_segment",
+        args=[str(segment_id)],
+        queue="cdp_segments",
+    )
     return {"status": "queued", "segment_id": str(segment_id)}
 
 
@@ -119,23 +121,32 @@ def get_segment_members(
 @router.get("/{segment_id}/preview")
 def preview_segment(
     segment_id: uuid.UUID,
-    limit: int = Query(20, le=100),
+    limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
     """Evaluate segment rules and return sample profiles WITHOUT persisting membership."""
     from sqlalchemy import text
-    from services.segmentation.app.engine.sql_builder import SQLBuilder  # import from segmentation service
+    # Import is relative to the shared package — sql_builder is installed via shared pyproject
+    from cdp_shared.sql_builder import SQLBuilder  # noqa: placed in shared for reuse across services
     seg = db.get(Segment, segment_id)
     if not seg:
         raise HTTPException(status_code=404, detail="Segment not found")
     try:
         builder = SQLBuilder()
         where_clause, params = builder.build(seg.rules)
+        # limit is int-validated by FastAPI (ge=1, le=100), safe to use in f-string
+        safe_limit = min(int(limit), 100)
         rows = db.execute(
-            text(f"SELECT id, email, phone, traits FROM cdp.profiles WHERE merged_into IS NULL AND ({where_clause}) LIMIT {limit}"),
+            text(
+                f"SELECT id, email, phone, traits FROM cdp.profiles"
+                f" WHERE merged_into IS NULL AND ({where_clause})"
+                f" LIMIT {safe_limit}"
+            ),
             params,
         ).mappings().all()
         return {"count_estimate": len(rows), "sample": [dict(r) for r in rows]}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid rule: {e}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Rule evaluation error: {e}")

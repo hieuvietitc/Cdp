@@ -10,7 +10,7 @@ from cdp_shared.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
-ANON_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
+ANON_CACHE_TTL = 60 * 60 * 24 * 7  # 7 days — shorter TTL prevents stale identity merges
 
 
 class IdentityResolver:
@@ -121,18 +121,25 @@ class IdentityResolver:
             self.db.commit()
 
     def _merge(self, source: Profile, target: Profile):
-        """Move all identities and events from source → target, then mark source as merged."""
+        """Move all identities and events from source → target atomically, then mark source as merged."""
         from cdp_shared.models.event import Event
-        self.db.execute(
-            Identity.__table__.update()
-            .where(Identity.profile_id == source.id)
-            .values(profile_id=target.id)
-        )
-        self.db.execute(
-            Event.__table__.update()
-            .where(Event.profile_id == source.id)
-            .values(profile_id=target.id)
-        )
-        source.merged_into = target.id
-        self.db.commit()
-        logger.info("Merged profile %s → %s", source.id, target.id)
+        try:
+            self.db.execute(
+                Identity.__table__.update()
+                .where(Identity.profile_id == source.id)
+                .values(profile_id=target.id)
+            )
+            self.db.execute(
+                Event.__table__.update()
+                .where(Event.profile_id == source.id)
+                .values(profile_id=target.id)
+            )
+            source.merged_into = target.id
+            self.db.commit()
+            # Invalidate stale anonymous cache entries pointing at merged profile
+            self.redis.delete(f"cdp:anon:{source.id}")
+            logger.info("Merged profile %s → %s", source.id, target.id)
+        except Exception:
+            self.db.rollback()
+            logger.exception("Profile merge failed %s → %s; rolled back", source.id, target.id)
+            raise

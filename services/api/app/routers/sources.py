@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from cdp_shared.db import get_db
 from cdp_shared.models.source import Source
+from cdp_shared.redis_client import get_redis
 from app.auth.jwt import get_current_user
 
 router = APIRouter()
@@ -30,8 +31,6 @@ def create_source(body: SourceCreate, db: Session = Depends(get_db), _=Depends(g
     source = Source(name=body.name, type=body.type, write_key=write_key)
     db.add(source)
     db.commit()
-    # Cache write_key as valid in Redis
-    from cdp_shared.redis_client import get_redis
     get_redis().setex(f"cdp:write_key:{write_key}", 86400, "1")
     return {"id": str(source.id), "name": source.name, "write_key": write_key}
 
