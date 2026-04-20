@@ -167,8 +167,8 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-changeme-in-production}
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: 1440
-      # Set to "production" to hard-fail on weak JWT_SECRET_KEY
       ENVIRONMENT: ${ENVIRONMENT:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4000,http://localhost:4100}
     ports:
       - "4002:8000"
     depends_on:

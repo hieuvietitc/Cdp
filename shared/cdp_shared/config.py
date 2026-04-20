@@ -1,3 +1,6 @@
+from typing import List
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +16,19 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "changeme"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
+
+    # CORS — comma-separated list of allowed origins
+    # e.g. CORS_ORIGINS=http://localhost:3000,http://localhost:4000
+    cors_origins: str = "http://localhost:3000,http://localhost:4000,http://localhost:4100"
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_origins(cls, v: str) -> str:
+        return v  # kept as string; split at use-site
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     # External DB sources
     loyalty_db_url: str = ""
@@ -30,3 +46,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
