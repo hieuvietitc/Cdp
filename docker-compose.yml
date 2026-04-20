@@ -63,7 +63,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "4001:8000"
+      - "4011:8000"
     depends_on:
       postgres:
         condition: service_healthy
