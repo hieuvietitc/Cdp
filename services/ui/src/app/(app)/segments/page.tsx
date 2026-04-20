@@ -75,9 +75,9 @@ export default function SegmentsPage() {
                     <TableRow key={s.id as string}>
                       <TableCell>
                         <span className="font-medium">{s.name as string}</span>
-                        {s.description && (
+                        {s.description ? (
                           <p className="text-xs text-muted-foreground mt-0.5">{s.description as string}</p>
-                        )}
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1.5">
