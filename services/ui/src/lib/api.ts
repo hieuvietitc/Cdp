@@ -1,11 +1,11 @@
 import axios from "axios";
+import { getConfig } from "./config";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
+export const api = axios.create();
 
-export const api = axios.create({ baseURL: BASE_URL });
-
-// Attach JWT token from localStorage on every request
+// Resolve baseURL dynamically at request time (runtime config, not build-time)
 api.interceptors.request.use((config) => {
+  config.baseURL = getConfig().apiUrl;
   const token = typeof window !== "undefined" ? localStorage.getItem("cdp_token") : null;
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
