@@ -12,7 +12,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5432:5432"
+      - "4432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cdp}"]
       interval: 10s
@@ -57,13 +57,13 @@ services:
   # ─── Collector API ────────────────────────────────────────────────────────
   collector:
     build:
-      context: services/collector
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/collector/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "8001:8000"
+      - "4001:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,8 +77,8 @@ services:
   # Each instance gets a unique CONSUMER_NAME (hostname-based) automatically.
   processor:
     build:
-      context: services/processor
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/processor/Dockerfile
     command: celery -A app.worker worker -l info -Q cdp_events -c ${PROCESSOR_CONCURRENCY:-8}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
@@ -101,8 +101,8 @@ services:
   # ─── Batch Ingestion ──────────────────────────────────────────────────────
   ingestion:
     build:
-      context: services/ingestion
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/ingestion/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
@@ -116,8 +116,8 @@ services:
   # ─── Segmentation Engine ──────────────────────────────────────────────────
   segmentation:
     build:
-      context: services/segmentation
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/segmentation/Dockerfile
     command: celery -A app.worker worker -l info -Q cdp_segments -c 2
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
@@ -134,8 +134,8 @@ services:
   # ─── Activation Service ───────────────────────────────────────────────────
   activation:
     build:
-      context: services/activation
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/activation/Dockerfile
     command: celery -A app.worker worker -l info -Q cdp_activations -c 2
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
@@ -157,8 +157,8 @@ services:
   # ─── Admin API ────────────────────────────────────────────────────────────
   api:
     build:
-      context: services/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/api/Dockerfile
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
@@ -170,7 +170,7 @@ services:
       # Set to "production" to hard-fail on weak JWT_SECRET_KEY
       ENVIRONMENT: ${ENVIRONMENT:-development}
     ports:
-      - "8002:8000"
+      - "4002:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -184,10 +184,10 @@ services:
       context: services/ui
       dockerfile: Dockerfile
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8002
-      NEXT_PUBLIC_COLLECTOR_URL: http://localhost:8001
+      NEXT_PUBLIC_API_URL: http://localhost:4002
+      NEXT_PUBLIC_COLLECTOR_URL: http://localhost:4001
     ports:
-      - "3000:3000"
+      - "4000:3000"
     depends_on:
       - api
     restart: unless-stopped
@@ -195,8 +195,8 @@ services:
   # ─── Celery Beat (scheduler) ──────────────────────────────────────────────
   celery-beat:
     build:
-      context: services/processor
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/processor/Dockerfile
     command: celery -A app.worker beat -l info --scheduler celery.beat:PersistentScheduler
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
@@ -209,22 +209,23 @@ services:
     restart: unless-stopped
 
   # ─── Nginx reverse proxy ──────────────────────────────────────────────────
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./sdk/js/dist:/usr/share/nginx/html/sdk:ro
-    depends_on:
-      - collector
-      - api
-      - ui
-    restart: unless-stopped
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./sdk/js/dist:/usr/share/nginx/html/sdk:ro
+  #   depends_on:
+  #     - collector
+  #     - api
+  #     - ui
+  #   restart: unless-stopped
 
   # ─── PgBouncer (connection pooler) ───────────────────────────────────────
   pgbouncer:
-    image: edoburu/pgbouncer:1.22
+    # edoburu/pgbouncer uses semver+patches (e.g. 1.22.1-p0), not bare 1.22
+    image: edoburu/pgbouncer:1.22.1-p0
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       POOL_MODE: transaction
@@ -251,40 +252,40 @@ services:
     restart: unless-stopped
 
   # ─── Prometheus ───────────────────────────────────────────────────────────
-  prometheus:
-    image: prom/prometheus:v2.49.1
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=30d
-      - --web.enable-lifecycle
-    volumes:
-      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infra/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
-    depends_on:
-      - metrics
-    restart: unless-stopped
+  # prometheus:
+  #   image: prom/prometheus:v2.49.1
+  #   command:
+  #     - --config.file=/etc/prometheus/prometheus.yml
+  #     - --storage.tsdb.path=/prometheus
+  #     - --storage.tsdb.retention.time=30d
+  #     - --web.enable-lifecycle
+  #   volumes:
+  #     - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - ./infra/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+  #     - prometheus_data:/prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   depends_on:
+  #     - metrics
+  #   restart: unless-stopped
 
   # ─── Grafana ──────────────────────────────────────────────────────────────
-  grafana:
-    image: grafana/grafana:10.3.1
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-cdpgrafana}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SERVER_ROOT_URL: http://localhost:3001
-    volumes:
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    ports:
-      - "3001:3000"
-    depends_on:
-      - prometheus
-    restart: unless-stopped
+  # grafana:
+  #   image: grafana/grafana:10.3.1
+  #   environment:
+  #     GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+  #     GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-cdpgrafana}
+  #     GF_USERS_ALLOW_SIGN_UP: "false"
+  #     GF_SERVER_ROOT_URL: http://localhost:3001
+  #   volumes:
+  #     - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+  #     - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+  #     - grafana_data:/var/lib/grafana
+  #   ports:
+  #     - "1001:3000"
+  #   depends_on:
+  #     - prometheus
+  #   restart: unless-stopped
 
   # ─── Postgres Exporter ────────────────────────────────────────────────────
   postgres-exporter:
@@ -307,28 +308,28 @@ services:
     restart: unless-stopped
 
   # ─── Apache Superset (BI Dashboards) ──────────────────────────────────────
-  superset:
-    image: apache/superset:3.1.0
-    environment:
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-superset-change-me-in-production}
-      SUPERSET_DB_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
-      REDIS_URL: redis://redis:6379/3
-      SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
-      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-cdpsuperset}
-      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.com}
-    volumes:
-      - ./infra/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
-      - ./infra/superset/init_superset.sh:/docker-entrypoint.sh:ro
-      - superset_data:/app/superset_home
-    ports:
-      - "8088:8088"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
+  # superset:
+  #   image: apache/superset:3.1.0
+  #   environment:
+  #     SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-superset-change-me-in-production}
+  #     SUPERSET_DB_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
+  #     DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
+  #     REDIS_URL: redis://redis:6379/3
+  #     SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER:-admin}
+  #     SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-cdpsuperset}
+  #     SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@example.com}
+  #   volumes:
+  #     - ./infra/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+  #     - ./infra/superset/init_superset.sh:/docker-entrypoint.sh:ro
+  #     - superset_data:/app/superset_home
+  #   ports:
+  #     - "8088:8088"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
   # ─── Automated Backup ─────────────────────────────────────────────────────
   backup:
@@ -356,7 +357,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  prometheus_data:
-  grafana_data:
-  superset_data:
+  # prometheus_data:
+  # grafana_data:
+  # superset_data:
   backup_data:

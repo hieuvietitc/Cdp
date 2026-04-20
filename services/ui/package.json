@@ -20,8 +20,7 @@
     "tailwind-merge": "^2.2",
     "@radix-ui/react-dialog": "^1.0",
     "@radix-ui/react-tabs": "^1.0",
-    "@radix-ui/react-select": "^2.0",
-    "@radix-ui/react-badge": "^1.0"
+    "@radix-ui/react-select": "^2.0"
   },
   "devDependencies": {
     "typescript": "^5",

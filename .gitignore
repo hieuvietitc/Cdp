@@ -1,0 +1,6 @@
+sdk/js/node_modules/
+services/ui/.next/
+services/ui/node_modules/
+*.pyc
+sdk/js/package-lock.json
+services/ui/package-lock.json
