@@ -68,3 +68,11 @@ export const analyticsApi = {
 export const authApi = {
   login: (email: string, password: string) => api.post("/api/v1/auth/login", { email, password }),
 };
+
+export const sourcesApi = {
+  list: () => api.get("/api/v1/sources"),
+  get: (id: string) => api.get(`/api/v1/sources/${id}`),
+  create: (data: { name: string; type: string }) => api.post("/api/v1/sources", data),
+  stats: (id: string) => api.get(`/api/v1/sources/${id}/stats`),
+  rotateKey: (id: string) => api.post(`/api/v1/sources/${id}/rotate-key`),
+};

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, sourcesApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Copy, Check, Globe, Smartphone, Server, Radio } from "lucide-react";
+import Link from "next/link";
+import { Plus, Copy, Check, Globe, Smartphone, Server, Radio, ChevronRight } from "lucide-react";
 
 const TYPE_ICON: Record<string, React.ElementType> = {
   web: Globe,
@@ -32,11 +33,11 @@ export default function SourcesPage() {
 
   const { data: sources, isLoading } = useQuery({
     queryKey: ["sources"],
-    queryFn: () => api.get("/api/v1/sources").then((r) => r.data),
+    queryFn: () => sourcesApi.list().then((r) => r.data),
   });
 
   const createMutation = useMutation({
-    mutationFn: () => api.post("/api/v1/sources", { name, type }),
+    mutationFn: () => sourcesApi.create({ name, type }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sources"] });
       setOpen(false);
@@ -153,6 +154,11 @@ export default function SourcesPage() {
                     >
                       {isCopied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                     </Button>
+                    <Link href={`/sources/${s.id}`}>
+                      <Button variant="ghost" size="icon" title="Xem snippet & thống kê">
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </Link>
                   </div>
                 </CardContent>
               </Card>
