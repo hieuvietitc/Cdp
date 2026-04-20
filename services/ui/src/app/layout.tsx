@@ -8,9 +8,21 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const runtimeConfig = {
+    apiUrl: process.env.API_URL ?? "http://localhost:4002",
+    collectorUrl: process.env.COLLECTOR_URL ?? "http://localhost:4001",
+  };
+
   return (
     <html lang="vi">
-      <body className="bg-gray-50 text-gray-900">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__CDP_CONFIG__ = ${JSON.stringify(runtimeConfig)};`,
+          }}
+        />
+      </head>
+      <body className="bg-background text-foreground antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

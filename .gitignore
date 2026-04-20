@@ -4,3 +4,6 @@ services/ui/node_modules/
 *.pyc
 sdk/js/package-lock.json
 services/ui/package-lock.json
+services/api/.venv/
+services/api/.env
+services/.venv/

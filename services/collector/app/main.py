@@ -1,5 +1,9 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.routers import events, health
@@ -20,3 +24,14 @@ app.add_middleware(
 
 app.include_router(health.router, tags=["health"])
 app.include_router(events.router, prefix="/v1", tags=["events"])
+
+# Serve the JS SDK — path resolution supports both Docker (mounted volume)
+# and local dev (relative to repo root)
+_sdk_parents = Path(__file__).parents
+_SDK_CANDIDATES = [
+    Path("/sdk/dist"),                                                    # Docker
+    _sdk_parents[4] / "sdk/js/dist" if len(_sdk_parents) > 4 else None,  # local dev
+]
+_sdk_dir = next((p for p in _SDK_CANDIDATES if p and p.is_dir()), None)
+if _sdk_dir:
+    app.mount("/sdk", StaticFiles(directory=str(_sdk_dir)), name="sdk")
