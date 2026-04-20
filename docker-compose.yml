@@ -12,7 +12,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "4432:5432"
+      - "${POSTGRES_HOST_PORT:-4432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cdp}"]
       interval: 10s
@@ -21,9 +21,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    # maxmemory-policy allkeys-lru: when Redis is full, evict LRU keys
-    # (rate limit counters and write_key caches are expendable)
-    # maxmemory 512mb: tune based on available RAM (events stream + caches)
     command: >
       redis-server
       --appendonly yes
@@ -32,7 +29,7 @@ services:
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -63,7 +60,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "4011:8000"
+      - "${COLLECTOR_PORT:-4001}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,9 +69,6 @@ services:
     restart: unless-stopped
 
   # ─── Event Processor (Celery) ─────────────────────────────────────────────
-  # Scale horizontally for 100K-1M events/day:
-  #   docker compose up --scale processor=3
-  # Each instance gets a unique CONSUMER_NAME (hostname-based) automatically.
   processor:
     build:
       context: .
@@ -85,9 +79,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/2
-      # Tune event batch size from Redis Streams (higher = more throughput, more RAM)
       STREAM_BATCH_SIZE: ${STREAM_BATCH_SIZE:-100}
-      # Warn when stream lag exceeds this threshold
       STREAM_LAG_WARN: ${STREAM_LAG_WARN:-10000}
       DB_POOL_SIZE: 10
       DB_POOL_MAX_OVERFLOW: 10
@@ -163,14 +155,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/1
-      # REQUIRED: set a strong secret in .env before production
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-changeme-in-production}
       JWT_ALGORITHM: HS256
-      JWT_EXPIRE_MINUTES: 1440
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-1440}
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:4000,http://localhost:4100}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://${PUBLIC_HOST:-localhost}:${UI_PORT:-4000}}
     ports:
-      - "4002:8000"
+      - "${API_PORT:-4002}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -184,10 +175,10 @@ services:
       context: services/ui
       dockerfile: Dockerfile
     environment:
-      API_URL: http://localhost:4002
-      COLLECTOR_URL: http://localhost:4001
+      API_URL: http://${PUBLIC_HOST:-localhost}:${API_PORT:-4002}
+      COLLECTOR_URL: http://${PUBLIC_HOST:-localhost}:${COLLECTOR_PORT:-4001}
     ports:
-      - "4000:3000"
+      - "${UI_PORT:-4000}:3000"
     depends_on:
       - api
     restart: unless-stopped
@@ -212,7 +203,7 @@ services:
   # nginx:
   #   image: nginx:alpine
   #   ports:
-  #     - "80:80"
+  #     - "${NGINX_PORT:-80}:80"
   #   volumes:
   #     - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
   #     - ./sdk/js/dist:/usr/share/nginx/html/sdk:ro
@@ -224,7 +215,6 @@ services:
 
   # ─── PgBouncer (connection pooler) ───────────────────────────────────────
   pgbouncer:
-    # edoburu/pgbouncer uses semver+patches (e.g. 1.22.1-p0), not bare 1.22
     image: edoburu/pgbouncer:1.22.1-p0
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cdp}:${POSTGRES_PASSWORD:-cdppassword}@postgres:5432/${POSTGRES_DB:-cdpdb}
@@ -232,7 +222,7 @@ services:
       MAX_CLIENT_CONN: 500
       DEFAULT_POOL_SIZE: 25
     ports:
-      - "5433:5432"
+      - "${PGBOUNCER_HOST_PORT:-5433}:5432"
     depends_on:
       postgres:
         condition: service_healthy
@@ -264,7 +254,7 @@ services:
   #     - ./infra/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
   #     - prometheus_data:/prometheus
   #   ports:
-  #     - "9090:9090"
+  #     - "${PROMETHEUS_PORT:-9090}:9090"
   #   depends_on:
   #     - metrics
   #   restart: unless-stopped
@@ -276,13 +266,13 @@ services:
   #     GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
   #     GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-cdpgrafana}
   #     GF_USERS_ALLOW_SIGN_UP: "false"
-  #     GF_SERVER_ROOT_URL: http://localhost:3001
+  #     GF_SERVER_ROOT_URL: http://${PUBLIC_HOST:-localhost}:${GRAFANA_PORT:-3001}
   #   volumes:
   #     - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
   #     - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
   #     - grafana_data:/var/lib/grafana
   #   ports:
-  #     - "1001:3000"
+  #     - "${GRAFANA_PORT:-3001}:3000"
   #   depends_on:
   #     - prometheus
   #   restart: unless-stopped
@@ -323,7 +313,7 @@ services:
   #     - ./infra/superset/init_superset.sh:/docker-entrypoint.sh:ro
   #     - superset_data:/app/superset_home
   #   ports:
-  #     - "8088:8088"
+  #     - "${SUPERSET_PORT:-8088}:8088"
   #   depends_on:
   #     postgres:
   #       condition: service_healthy
