@@ -27,10 +27,11 @@ app.include_router(events.router, prefix="/v1", tags=["events"])
 
 # Serve the JS SDK — path resolution supports both Docker (mounted volume)
 # and local dev (relative to repo root)
+_sdk_parents = Path(__file__).parents
 _SDK_CANDIDATES = [
-    Path("/sdk/dist"),                          # Docker: volume mount
-    Path(__file__).parents[4] / "sdk/js/dist",  # local dev: repo root
+    Path("/sdk/dist"),                                                    # Docker
+    _sdk_parents[4] / "sdk/js/dist" if len(_sdk_parents) > 4 else None,  # local dev
 ]
-_sdk_dir = next((p for p in _SDK_CANDIDATES if p.is_dir()), None)
+_sdk_dir = next((p for p in _SDK_CANDIDATES if p and p.is_dir()), None)
 if _sdk_dir:
     app.mount("/sdk", StaticFiles(directory=str(_sdk_dir)), name="sdk")
