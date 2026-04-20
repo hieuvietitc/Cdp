@@ -1,7 +1,5 @@
 from typing import List
-import os
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,15 +16,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
 
-    # CORS — comma-separated list of allowed origins
-    # e.g. CORS_ORIGINS=http://localhost:3000,http://localhost:4000
-    #load from environment variable
-    cors_origins: str = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://localhost:4000,http://localhost:4100")
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def _parse_origins(cls, v: str) -> str:
-        return v  # kept as string; split at use-site
+    # CORS — set via CORS_ORIGINS env var (comma-separated)
+    cors_origins: str = "http://localhost:3000,http://localhost:4000,http://localhost:4100"
 
     @property
     def cors_origins_list(self) -> List[str]:
